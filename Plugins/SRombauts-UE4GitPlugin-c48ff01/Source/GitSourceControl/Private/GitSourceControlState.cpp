@@ -279,7 +279,7 @@ bool FGitSourceControlState::CanCheckout() const
 {
 	if(bUsingGitLfsLocking)
 	{
-		return (WorkingCopyState == EWorkingCopyState::Unchanged || WorkingCopyState == EWorkingCopyState::Modified) && LockState == ELockState::NotLocked;
+		return (WorkingCopyState == EWorkingCopyState::Unchanged || WorkingCopyState == EWorkingCopyState::Modified) && LockState == ELockState::NotLocked && IsCurrent();
 	}
 	else
 	{
