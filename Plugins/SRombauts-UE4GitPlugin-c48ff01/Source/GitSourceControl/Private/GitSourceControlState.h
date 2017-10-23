@@ -48,6 +48,7 @@ public:
 		, LockState(ELockState::Unknown)
 		, bUsingGitLfsLocking(InUsingLfsLocking)
 		, TimeStamp(0)
+		, CommitsBehindRemote(0)
 	{
 	}
 
@@ -103,4 +104,7 @@ public:
 
 	/** The timestamp of the last update */
 	FDateTime TimeStamp;
+
+	/** How many commits we are behind the remote repository. Zero when current. */
+	int CommitsBehindRemote;
 };

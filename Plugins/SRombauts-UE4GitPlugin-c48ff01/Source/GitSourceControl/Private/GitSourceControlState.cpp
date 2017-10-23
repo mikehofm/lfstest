@@ -71,6 +71,11 @@ FName FGitSourceControlState::GetIconName() const
 		return FName("Subversion.CheckedOutByOtherUser");
 	}
 
+	if (!IsCurrent())
+	{
+		return FName("Subversion.NotAtHeadRevision");
+	}
+
 	switch(WorkingCopyState)
 	{
 	case EWorkingCopyState::Modified:
@@ -113,6 +118,11 @@ FName FGitSourceControlState::GetSmallIconName() const
 	else if(LockState == ELockState::LockedOther)
 	{
 		return FName("Subversion.CheckedOutByOtherUser_Small");
+	}
+
+	if (!IsCurrent())
+	{
+		return FName("Subversion.NotAtHeadRevision_Small");
 	}
 
 	switch(WorkingCopyState)
@@ -159,6 +169,11 @@ FText FGitSourceControlState::GetDisplayName() const
 		return FText::Format( LOCTEXT("LockedOther", "Locked by "), FText::FromString(LockUser) );
 	}
 
+	if (!IsCurrent())
+	{
+		return LOCTEXT("NotCurrent", "Not Current");
+	}
+
 	switch(WorkingCopyState)
 	{
 	case EWorkingCopyState::Unknown:
@@ -197,6 +212,11 @@ FText FGitSourceControlState::GetDisplayTooltip() const
 	else if(LockState == ELockState::LockedOther)
 	{
 		return FText::Format( LOCTEXT("LockedOther_Tooltip", "Locked for editing by: {0}"), FText::FromString(LockUser) );
+	}
+
+	if (!IsCurrent())
+	{
+		return LOCTEXT("NotCurrent_Tooltip", "The file(s) are not at the head revision");
 	}
 
 	switch(WorkingCopyState)
@@ -243,7 +263,7 @@ bool FGitSourceControlState::CanCheckIn() const
 {
 	if(bUsingGitLfsLocking)
 	{
-		return ( ( (LockState == ELockState::Locked) && !IsConflicted() ) || (WorkingCopyState == EWorkingCopyState::Added) );
+		return ( ( (LockState == ELockState::Locked) && !IsConflicted() && IsCurrent() ) || (WorkingCopyState == EWorkingCopyState::Added) );
 	}
 	else
 	{
@@ -290,7 +310,7 @@ bool FGitSourceControlState::IsCheckedOutOther(FString* Who) const
 
 bool FGitSourceControlState::IsCurrent() const
 {
-	return true; // @todo check the state of the HEAD versus the state of tracked branch on remote
+	return CommitsBehindRemote == 0;
 }
 
 bool FGitSourceControlState::IsSourceControlled() const

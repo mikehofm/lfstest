@@ -539,6 +539,23 @@ public:
 };
 
 /**
+* Parse output from "git diff --name-status"
+*
+* Example output of "git diff --name-status"
+M	Content/ThirdPersonBP/Blueprints/ThirdPersonCharacter.uasset
+M	Content/ThirdPersonBP/Blueprints/ThirdPersonGameMode.uasset
+D	Content/Textures/T_Perlin_Noise_M.uasset
+*/
+static void FindOutOfDateFiles(const FString& InRepositoryRoot, const TArray<FString>& InDiff, TSet<FString>& OutResult)
+{
+	for (const auto& line : InDiff)
+	{
+		if (line[0] == 'M')
+			OutResult.Add(line.RightChop(2));
+	}
+}
+
+/**
  * @brief Extract the relative filename from a Git status result.
  *
  * Examples of status results:
@@ -731,7 +748,7 @@ R  Content/Textures/T_Perlin_Noise_M.uasset -> Content/Textures/T_Perlin_Noise_M
 ?? Content/Materials/M_Basic_Wall.uasset
 !! BasicCode.sln
 */
-static void ParseFileStatusResult(const FString& InPathToGitBinary, const FString& InRepositoryRoot, const bool InUsingLfsLocking, const TArray<FString>& InFiles, const TMap<FString, FString>& InLockedFiles, const TArray<FString>& InResults, TArray<FGitSourceControlState>& OutStates)
+static void ParseFileStatusResult(const FString& InPathToGitBinary, const FString& InRepositoryRoot, const bool InUsingLfsLocking, const TArray<FString>& InFiles, const TMap<FString, FString>& InLockedFiles, const TArray<FString>& InResults, const TSet<FString>& InOutOfDateFiles, TArray<FGitSourceControlState>& OutStates)
 {
 	FGitSourceControlModule& GitSourceControl = FModuleManager::GetModuleChecked<FGitSourceControlModule>("GitSourceControl");
 	const FString LfsUserName = GitSourceControl.AccessSettings().GetLfsUserName();
@@ -741,6 +758,7 @@ static void ParseFileStatusResult(const FString& InPathToGitBinary, const FStrin
 	for(const auto& File : InFiles)
 	{
 		FGitSourceControlState FileState(File, InUsingLfsLocking);
+
 		// Search the file in the list of status
 		int32 IdxResult = InResults.IndexOfByPredicate(FGitStatusFileMatcher(File));
 		if(IdxResult != INDEX_NONE)
@@ -775,6 +793,7 @@ static void ParseFileStatusResult(const FString& InPathToGitBinary, const FStrin
 				UE_LOG(LogSourceControl, Log, TEXT("Status(%s) not found and does not exists => new/not controled"), *File);
 			}
 		}
+
 		if(InLockedFiles.Contains(File))
 		{
 			FileState.LockUser = InLockedFiles[File];
@@ -798,6 +817,10 @@ static void ParseFileStatusResult(const FString& InPathToGitBinary, const FStrin
 				UE_LOG(LogSourceControl, Log, TEXT("Status(%s) Not Locked"), *File);
 			}
 		}
+
+		if (InOutOfDateFiles.Contains(File.RightChop(InRepositoryRoot.Len() + 1)))	// Convert File to relative path
+			FileState.CommitsBehindRemote = 1;
+		
 		FileState.TimeStamp = Now;
 		OutStates.Add(FileState);
 	}
@@ -842,7 +865,7 @@ static void ParseDirectoryStatusResult(const FString& InPathToGitBinary, const F
  * @param[out]	InResults			Results from the "status" command
  * @param[out]	OutStates			States of files for witch the status has been gathered (distinct than InFiles in case of a "directory status")
  */
-static void ParseStatusResults(const FString& InPathToGitBinary, const FString& InRepositoryRoot, const bool InUsingLfsLocking, const TArray<FString>& InFiles, const TMap<FString, FString>& InLockedFiles, const TArray<FString>& InResults, TArray<FGitSourceControlState>& OutStates)
+static void ParseStatusResults(const FString& InPathToGitBinary, const FString& InRepositoryRoot, const bool InUsingLfsLocking, const TArray<FString>& InFiles, const TMap<FString, FString>& InLockedFiles, const TArray<FString>& InResults, const TSet<FString>& InOutOfDateFiles, TArray<FGitSourceControlState>& OutStates)
 {
 	if(1 == InFiles.Num() && FPaths::DirectoryExists(InFiles[0]))
 	{
@@ -855,7 +878,7 @@ static void ParseStatusResults(const FString& InPathToGitBinary, const FString& 
 		const bool bResult = ListFilesInDirectoryRecurse(InPathToGitBinary, InRepositoryRoot, Directory, Files);
 		if(bResult)
 		{
-			ParseFileStatusResult(InPathToGitBinary, InRepositoryRoot, InUsingLfsLocking, Files, InLockedFiles, InResults, OutStates);
+			ParseFileStatusResult(InPathToGitBinary, InRepositoryRoot, InUsingLfsLocking, Files, InLockedFiles, InResults, InOutOfDateFiles, OutStates);
 		}
 		// The above cannot detect deleted assets since there is no file left to enumerate (either by the Content Browser or by git ls-files)
 		// => so we also parse the status results to explicitly look for Deleted/Missing assets
@@ -866,7 +889,7 @@ static void ParseStatusResults(const FString& InPathToGitBinary, const FString& 
 		// 2) General case for one or more files in the same directory.
 		// TODO LFS Debug Log
 		UE_LOG(LogSourceControl, Log, TEXT("ParseStatusResults: 2) General case for one or more files (%s, ...)"), *InFiles[0]);
-		ParseFileStatusResult(InPathToGitBinary, InRepositoryRoot, InUsingLfsLocking, InFiles, InLockedFiles, InResults, OutStates);
+		ParseFileStatusResult(InPathToGitBinary, InRepositoryRoot, InUsingLfsLocking, InFiles, InLockedFiles, InResults, InOutOfDateFiles, OutStates);
 	}
 }
 
@@ -889,9 +912,12 @@ bool RunUpdateStatus(const FString& InPathToGitBinary, const FString& InReposito
 			UE_LOG(LogSourceControl, Log, TEXT("LockedFile(%s, %s)"), *LockFile.LocalFilename, *LockFile.LockUser);
 			LockedFiles.Add(MoveTemp(LockFile.LocalFilename), MoveTemp(LockFile.LockUser));
 		}
+
+		RunCommand(TEXT("fetch"), InPathToGitBinary, InRepositoryRoot, TArray<FString>(), TArray<FString>(), Results, ErrorMessages);
 	}
 
 	TArray<FString> Results;
+	TArray<FString> DiffResults;
 	TArray<FString> Parameters;
 	Parameters.Add(TEXT("--porcelain"));
 	Parameters.Add(TEXT("--ignored"));
@@ -932,11 +958,18 @@ bool RunUpdateStatus(const FString& InPathToGitBinary, const FString& InReposito
 			OnePath.Add(Path);
 		}
 		TArray<FString> ErrorMessages;
+		TSet<FString> OutOfDateFiles;
 		const bool bResult = RunCommand(TEXT("status"), InPathToGitBinary, InRepositoryRoot, Parameters, OnePath, Results, ErrorMessages);
 		OutErrorMessages.Append(ErrorMessages);
 		if(bResult)
 		{
-			ParseStatusResults(InPathToGitBinary, InRepositoryRoot, InUsingLfsLocking, Files.Value, LockedFiles, Results, OutStates);
+			if (InUsingLfsLocking)
+			{
+				RunCommand(TEXT("diff --name-status @ @{u}"), InPathToGitBinary, InRepositoryRoot, TArray<FString>(), TArray<FString>(), DiffResults, ErrorMessages);
+				FindOutOfDateFiles(InRepositoryRoot, DiffResults, OutOfDateFiles);
+			}
+
+			ParseStatusResults(InPathToGitBinary, InRepositoryRoot, InUsingLfsLocking, Files.Value, LockedFiles, Results, OutOfDateFiles, OutStates);
 		}
 	}
 
