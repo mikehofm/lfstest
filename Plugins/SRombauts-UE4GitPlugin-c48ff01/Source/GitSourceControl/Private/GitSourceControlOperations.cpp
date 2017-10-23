@@ -329,6 +329,7 @@ bool FGitSyncWorker::Execute(FGitSourceControlCommand& InCommand)
 	{
 		TArray<FString> Parameters;
 		Parameters.Add(TEXT("--rebase"));
+		Parameters.Add(TEXT("--autostash"));	// Mike: added this so we can pull if local files are modified. Creates risk of merge conflict though.
 		InCommand.bCommandSuccessful = GitSourceControlUtils::RunCommand(TEXT("pull"), InCommand.PathToGitBinary, InCommand.PathToRepositoryRoot, Parameters, TArray<FString>(), InCommand.InfoMessages, InCommand.ErrorMessages);
 	}
 
