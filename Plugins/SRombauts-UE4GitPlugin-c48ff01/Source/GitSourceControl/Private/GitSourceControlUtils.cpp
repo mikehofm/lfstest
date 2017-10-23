@@ -549,10 +549,7 @@ D	Content/Textures/T_Perlin_Noise_M.uasset
 static void FindOutOfDateFiles(const FString& InRepositoryRoot, const TArray<FString>& InDiff, TSet<FString>& OutResult)
 {
 	for (const auto& line : InDiff)
-	{
-		if (line[0] == 'M')
-			OutResult.Add(line.RightChop(2));
-	}
+		OutResult.Add(line.RightChop(2));
 }
 
 /**
@@ -818,8 +815,14 @@ static void ParseFileStatusResult(const FString& InPathToGitBinary, const FStrin
 			}
 		}
 
-		if (InOutOfDateFiles.Contains(File.RightChop(InRepositoryRoot.Len() + 1)))	// Convert File to relative path
-			FileState.CommitsBehindRemote = 1;
+		FString relativeFile = File.RightChop(InRepositoryRoot.Len() + 1);		// Convert File to relative path
+		if (InOutOfDateFiles.Contains(relativeFile))
+		{
+			TArray<FString> Results;
+			TArray<FString> ErrorMessages;
+			if (RunCommand(TEXT("rev-list --count @ @{u} --"), InPathToGitBinary, InRepositoryRoot, TArray<FString>(), { relativeFile }, Results, ErrorMessages))
+				FileState.CommitsBehindRemote = FCString::Atoi(*Results[0]);
+		}
 		
 		FileState.TimeStamp = Now;
 		OutStates.Add(FileState);
