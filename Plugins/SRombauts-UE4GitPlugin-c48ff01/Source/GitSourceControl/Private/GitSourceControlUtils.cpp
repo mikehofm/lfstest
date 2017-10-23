@@ -530,7 +530,7 @@ public:
 		if(3 <= Informations.Num())
 		{
 			LocalFilename = FPaths::ConvertRelativePathToFull(InRepositoryRoot, Informations[0].TrimTrailing());
-			LockUser = MoveTemp(Informations[1]);
+			LockUser = Informations[1].TrimTrailing();
 		}
 	}
 
